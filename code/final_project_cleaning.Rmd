@@ -1,0 +1,75 @@
+---
+title: "Homework 2"
+author: "Abuzar Royesh"
+date: "4/23/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Reproducible Code
+
+```{r}
+#libraries
+library(striprtf)
+library(stringr)
+library(tidyverse)
+library(lubridate)
+library(stm)
+library(tm)
+
+#data files
+files <- list.files("data2")
+
+file_data <- str_glue("data2/{files}")
+
+#functions
+empty_as_na <- function(x){
+  ifelse(x != "", x, NA)
+}
+```
+
+##Data Clean Up
+```{r}
+reading_data <- 
+  file_data %>% 
+  map(read_rtf)
+
+max_length <- max(sapply(reading_data, length))
+
+reading_data_2 <- 
+  sapply(reading_data, function(x) {c(x, rep(" ", max_length - length(x)))})
+
+docs <- 
+  as_tibble(t(reading_data_2)) %>% 
+  distinct() %>% 
+  unite(col = text, V15:str_c("V", max_length), sep = " ") %>% 
+  select(
+    date_time = V6, 
+    wordcount = V10, 
+    office = V14, 
+    text
+  ) %>% 
+  mutate(
+    date_time = parse_date_time(date_time, "%B %d, %Y %A %I:%M %p", tz = "EST"), 
+    wordcount = as.integer(str_remove_all(wordcount, "\\D")),
+    location = str_extract(office, "[A-Z[ |-] ]{3,}"), #extracting capitalized words
+    office = empty_as_na(office), 
+    office = if_else(is.na(office), str_extract(text, ".*(?=: )"), office), 
+    doc_type = 
+      str_extract(office, "(?<= the following ).*") %>% 
+      str_remove(pattern = ":") %>% 
+      str_remove_all(doc_type, "(?=release ).*"), #extracting document type
+    office = 
+      str_extract(office, ".*(?=issued|released the)") %>% 
+      str_remove(pattern = ".*-- ") #extracting the office
+  ) %>%
+  rowid_to_column("statement_id")
+
+
+docs %>% write_rds("docs.rds") #writing to file 
+```
+
+

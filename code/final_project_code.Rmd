@@ -1,0 +1,567 @@
+---
+title: "Understanding the Afghan Conflict:\nInsights from Machine Learning and Text Analysis"
+author: "Abuzar Royesh"
+date: "06/12/2019"
+output:
+  pdf_document: 
+    latex_engine: xelatex
+toc: TRUE
+---
+
+```{r, echo=FALSE}
+library(knitr)
+hook_output = knit_hooks$get("output")
+knit_hooks$set(output = function(x, options) {
+    # this hook is used only when the linewidth option is not NULL
+    if (!is.null(n <- options$linewidth)) {
+        x = knitr:::split_lines(x)
+        # any lines wider than n should be wrapped
+        if (any(nchar(x) > n)) 
+            x = strwrap(x, width = n)
+        x = paste(x, collapse = "\n")
+    }
+    hook_output(x, options)
+})
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+#libraries
+library(striprtf)
+library(stringr)
+library(tidyverse)
+library(lubridate)
+library(stm)
+library(tm)
+library(tidytext)
+library(SnowballC)
+library(lfe)
+
+documents <- 
+  read_rds("docs.rds")
+
+sentiment <- 
+  read_csv("word_sentiments1.csv") %>% 
+  group_by(sentiment) %>% 
+  summarize(word = paste(word, collapse = ", "))
+```
+\newpage
+
+#Introduction
+
+As President Donald Trump contemplates a full withdrawal of U.S. troops from Afghanistan^[Gibbons-Neff, Thomas, and Julian E. Barnes. “Under Peace Plan, U.S. Military Would Exit Afghanistan Within Five Years.” The New York Times, March 1, 2019, sec. U.S. https://www.nytimes.com/2019/02/28/us/politics/afghanistan-military-withdrawal.html.], many within the research and policy making community attempt to understand how the dynamics of the conflict have changed over time. Now, 18 years later, little is left of the optimism with which the war was started in 2001. How have the U.S. administration and the international community represented the struggle that is dubbed a lost war by many^[Young, Stephen B. “Why America Lost in Afghanistan.” Foreign Policy (blog). Accessed June 12, 2019. https://foreignpolicy.com/2019/02/05/why-america-lost-in-afghanistan-counterinsurgency-cords-vietnam/.]? And how has that portrayal changed over time? There is a dearth of rigorous empirical analysis of this question. This paper seeks to utilize machine learning and text analysis to analyze the vast corpus of  U.S. government and international community documents on Afghanistan. In particular, I look at more than 8,000 official English language newswires and press releases published by various sources between 2004 and 2019 to assess the change in topics and sentiment. The following sections lay out the research question,  methodology, findings, and areas of future inquiry.  
+
+##Research Question
+
+How does the content and sentiment of the official English language newswires and press releases on Afghanistan vary over time? 
+
+#Methodology
+
+##Data
+For the purpose of this research project, I downloaded all official English language newswires and press releases from Nexis Uni. The data set contained 8,281 documents dating between May 03, 2004 to April 04, 2019. From each document, I parsed the time and date of publication, word count, document type, and the name of the office that released the document. The offices that had released these documents included the following: 
+
+* The White House,
+* The U.S. Department of State, 
+* The U.S. Department of Defense, 
+* Voice of America, 
+* NATO's International Security Assistance Force (ISAF), 
+* The U.K. government, 
+* The World Bank, and
+* The United Nations. 
+
+The documents included press releases, news releases, news stories, statements, transcript of speeches, articles, newsletters, columns, hearings, fact sheets, and announcements. The minimum word count for an individual document was 35 words (two press releases by ISAF) and the maximum stood at 10,875 (A press release by the United Nations). The following figure shows the frequency of articles by date of publication. 
+```{r, echo=FALSE}
+documents %>% 
+  ggplot(aes(date_time)) + 
+  geom_histogram(bins = 20) + 
+  scale_x_datetime(date_labels = "%Y", date_breaks = "1 year", minor_breaks = NULL) + 
+  labs(
+    x = "Date", 
+    y = "Count", 
+    title = "Histogram of statements released on Afghanistan", 
+    caption = "Source: Documents compiled from Nexis Uni"
+  ) + 
+  # theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+##Topic Modeling
+
+To look at the distribution of topics over time, I ran vanilla Latent Dirichlet Allocation (LDA) on the corpus of the 8,281 documents. To do so, I used the `stm` package in R with $k = 10$ topics and extracted the parameter theta (composites versus topics matrix). After I fitted the model on the data, I used both the words with the highest probability within each topic (parameter $\beta$) and frequent and exclusive (FREX) to manually label each topic. In the cases where the highest probability words were not enough to determine a theme, I read the five documents with the highest probability for that specific topic. 
+
+I used the average theta score for all documents from a specific time period to look for the distribution of topics over time. For instance, to assess the distribution of topic models over months of the year, I averaged the theta scores for that specific topic for all documents that were released during that month of the year. 
+
+##Sentiment Analysis
+
+I also explored the change in sentiment over time. I used the `tm` package in R to remove capitalization and punctuation, remove filler words, stem the remaining words, and create a document term matrix based on a uni-gram model. I removed sparse terms (defined as uni-grams appearing in less than 2 percent of the documents) from the document term matrix. To account for the difference in document lengths, I normalized the matrix so that all documents had equal weighting regardless of word count. 
+
+Subsequently, I used a dictionary classification method using the dictionary of [positive](https://raw.githubusercontent.com/nealcaren/quant-text-fall-2014/master/positive.csv) and [negative](https://raw.githubusercontent.com/nealcaren/quant-text-fall-2014/master/negative.csv) words compiled by Neil Caren. I used the stemming function from the tm package to ensure that the stemming was consistent with the document term matrix, and removed all word stems that appeared in both negative and positive word lists. I used this word sentiment data set to compute a positive and negative weight for each document and calculate an overall score for each document through tallying the positive and negative scores.  
+
+To explore the change in tone and attitude over time, I averaged the document sentiment scores for the specified time interval (for instance, year or month). I looked at both the change between 2004 and 2019 and between the different months of the year (to assess whether there was seasonality). In order to ensure that seasonality was not influenced by the number of documents released in a given year, I also ran a year fixed effects regression on the data. I used the following model to isolate seasonality:  
+
+$$y_{it} = X_{it}\beta + \alpha_{i} + u_{it}$$ 
+where 
+
+$y_{it}$ is the sentiment score observed for individual document $i$ at time $t$, 
+
+$X$ is the month of the year, 
+
+$\beta$ is the coefficient on the month, 
+
+$t$ is year (time trend), 
+
+$\alpha_{i}$ is the intercept, and
+
+$u_{it}$ is the error term for individual document $i$ at time $t$.  
+
+
+#Findings
+
+##Topic Modeling
+
+Running LDA with $k = 10$ topics yielded the topic areas summarized in the following table. The first column contains the manually generated topic titles for each topic cluster, while the second and third list the highest probability and frequent and exclusive (FREX) uni-grams, respectively. 
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE}
+load("lda_fit.RData")
+
+theta_data <-
+  as_tibble(lda_fit$theta) %>%
+  rowid_to_column("statement_id") %>%
+  left_join(
+    documents %>% select(statement_id, date_time, wordcount),
+    by = "statement_id"
+  ) %>%
+  gather(key = topic, value = value, -statement_id, -date_time, -wordcount) %>%
+  arrange(statement_id) %>%
+  mutate(
+    topic = recode(
+      topic,
+      V1 = "Afghanistan Governance",
+      V2 = "Fighting Insurgency",
+      V3 = "Development Projects",
+      V4 = "Veterans",
+      V5 = "Personal Stories of Soldiers",
+      V6 = "U.S. Government",
+      V7 = "Air Force",
+      V8 = "Judicial Procedures",
+      V9 = "Background on Afghanistan",
+      V10 = "Army"
+    )
+  )
+```
+
+Topic | Highest Probability | FREX
+----------------|-------------------------------|-------------------------------
+`Afghanistan Governance` | afghanistan, said, afghan, will, secur, govern, peopl | inaud, question, holbrook, think, secretari, reaffirm, reconcili
+----------------|-------------------------------|-------------------------------
+`Fighting Insurgency` | forc, afghan, coalit, provinc, kill, insurg, attack | cach, suspect, detain, small-arm, bomb-mak, milit, grenad
+----------------|-------------------------------|-------------------------------
+`Development Projects` | afghanistan, afghan, develop, will, program, project, agricultur | usda, agribusi, fas, workshop, prt, fulbright, usg
+----------------|-------------------------------|-------------------------------
+`Veterans` | servic, veteran, famili, serv, member, nation, war | iava, medal, ptsd, veteran, fmwrc, tbi, badg
+----------------|-------------------------------|-------------------------------
+`Personal Stories of Soldiers` | said, marin, soldier, time, one, work, will | rifleman, humour, sapper, laugh, lad, joke, ski
+----------------|-------------------------------|-------------------------------
+`U.S. Government` | afghanistan, troop, presid, iraq, contact, pleas, will | senat, bipartisan, rep, congressman, codel, committe, obama
+----------------|-------------------------------|-------------------------------
+`Air Force` | said, air, forc, oper, mission, support, afghanistan | airdrop, refuel, nmcb, harrier, sorti, amc, pallet
+----------------|-------------------------------|-------------------------------
+`Judicial Procedures` | afghanistan, contract, state, investig, depart, offic, unit | attorney, guilti, plead, indict, mccaskil, conspiraci, briberi
+----------------|-------------------------------|-------------------------------
+`Background on Afghanistan` | afghanistan, nato, say, afghan, countri, govern, intern | scheffer, jaap, voa, mujahidin, pdpa, soviet, daoud
+----------------|-------------------------------|-------------------------------
+`Army` | forc, command, armi, afghanistan, oper, contact, soldier | conway, div, drum, ----, brigad, twentynin, bct
+
+The following figure shows the change in topic prevalence over the years, highlighting a number of interesting findings that are listed in bullet point format below. 
+
+
+
+```{r, echo=FALSE}
+theta_data %>%
+  group_by(year = year(date_time), topic) %>%
+  summarize(
+    value = mean(value, na.rm = TRUE)
+  ) %>%
+  ggplot(aes(year, value)) +
+  geom_line() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  facet_wrap(vars(topic)) +
+  labs(
+    x = "Year",
+    y = "Percent",
+    title = "Change in topic prevalence over time",
+    caption = "Source: Documents compiled from Nexis Uni"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+* While during the initial years (2004 to 2008), fighting the insurgency in Afghanistan and U.S. army were the most prevalent topics, over time the focus has shifted to governance in the country. Specifically, in 2014, when more than half of the U.S. troops left Afghanistan^[Associated Press. “A Timeline of U.S. Troop Levels in Afghanistan since 2001.” Military Times, August 8, 2017. https://www.military times.com/news/your-military/2016/07/06/a-timeline-of-u-s-troop-levels-in-afghanistan-since-2001/.
+], the discourse was shifted from the military to governance in the country. The discussion of fighting insurgency, nonetheless, has picked up steam once again under Trump administration. 
+* The U.S. air force became a major topic of discussion between 2011 and 2013, perhaps as a result of a greater focus on airstrikes. 
+* The discussion of Army (ground fighting) has consistently waned over time, even despite the surge in number of troops between 2009 and 2014. 
+* During the initial years of the war, a lot of documents were released that contained historical and current background data on Afghanistan but the number has remained steadily low since. 
+* As expected, around the time of elections in the U.S. when the incumbent president is not running for office, the U.S. government becomes a central topic of discussion. This might be a result of increased debate on the decisions of the new administration on Afghanistan. A cursory look at the documents with the highest theta value for each of 2009 and 2017 is consistent with this hypothesis: 
+
+```{r, echo=FALSE, linewidth=90}
+documents %>% 
+  filter(statement_id == 5856) %>% 
+  mutate(text = str_sub(text, end = 1363)) %>% 
+  pull(text)
+```
+
+
+```{r, echo=FALSE, linewidth=90}
+documents %>% 
+  filter(statement_id == 1368) %>% 
+  mutate(text = str_sub(text, end = 894)) %>% 
+  pull(text)
+```
+
+
+* Finally, there is a sharp increase in the prevalence of the topic of judicial procedures in 2015. A closer exploration of the data shows that there were a flurry of activity from the U.S. Department of Justice in coordination with Special Inspect General for Afghanistan Reconstruction (SIGAR) during this time. The following are excerpts from the texts of the three documents that had the highest theta value for the topic: 
+
+```{r, echo=FALSE, linewidth=90}
+documents %>% 
+  filter(statement_id == 1037) %>% 
+  mutate(text = str_sub(text, end = 1060)) %>% 
+  pull(text)
+
+documents %>% 
+  filter(statement_id == 2837) %>% 
+  mutate(text = str_sub(text, end = 646)) %>% 
+  pull(text)
+
+documents %>% 
+  filter(statement_id == 3793) %>% 
+  mutate(text = str_sub(text, end = 327)) %>% 
+  pull(text)
+```
+
+
+A look at the change by month of the year shows some seasonality with the topics. For instance, during summer time which is concurrent with the annual Taliban offensive^[Mashal, Mujib. “Taliban Announce Spring Offensive, Even as Peace Talks Gain Momentum - The New York Times.” The New York Times, April 12, 2019. https://www.nytimes.com/2019/04/12/world/asia/taliban-spring-offensive-afghanistan.html.], there is more discussion around army and fighting insurgency. On the other hand, the U.S. government becomes the topic of discussion during the month of December. Given the findings of the previous section, this sharp increase can be attributed to transitions in the U.S. administration following the 2008 and 2016 elections. 
+
+```{r, echo=FALSE}
+theta_data %>%
+  group_by(month = month(date_time), topic) %>%
+  summarize(
+    value = mean(value, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  mutate(month = as.factor(month)) %>%
+  ggplot(aes(month, value, group = 1)) +
+  geom_line() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  facet_wrap(vars(topic)) +
+  labs(
+    x = "Month",
+    y = "Percent",
+    title = "Change in topic prevalence by month",
+    caption = "Source: Documents compiled from Nexis Uni"
+  ) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+##Sentiment Analysis
+
+```{r, echo=FALSE}
+#using tm package
+statements <- Corpus(VectorSource(documents$text))
+
+dtm <-
+  DocumentTermMatrix(
+    statements,
+    control = list(
+      stopwords = TRUE,
+      tolower = TRUE,
+      removeNumbers = TRUE,
+      removePunctuation = TRUE,
+      stemming = TRUE
+    )
+  ) %>%
+  removeSparseTerms(0.98) %>%
+  as.matrix() %>%
+  as_tibble() %>%
+  rowid_to_column("statement_id")
+
+dtm_norm <-
+  dtm %>%
+  gather(key = key, value = value, -statement_id) %>%
+  group_by(statement_id) %>%
+  mutate(value = value / sum(value)) %>%
+  spread(key = key, value = value)
+
+sentiment_corpus <- Corpus(VectorSource(sentiment$word))
+
+dtm_sentiment <-
+  DocumentTermMatrix(
+    sentiment_corpus,
+    control = list(
+      stopwords = TRUE,
+      tolower = TRUE,
+      removeNumbers = TRUE,
+      removePunctuation = TRUE,
+      stemming = TRUE
+    )
+  ) %>%
+  as.matrix() %>%
+  as_tibble()
+
+duplicates <-
+  dtm_sentiment %>%
+  rowid_to_column() %>%
+  gather(key = word, value = count, -rowid) %>%
+  filter(count != 0) %>%
+  count(word) %>%
+  filter(n == 2) %>%
+  pull(word)
+
+word_sentiments <-
+  dtm_sentiment %>%
+  rowid_to_column("word_sentiment") %>%
+  mutate(word_sentiment = if_else(word_sentiment == 1, "negative", "positive")) %>%
+  gather(key = word, value = count, -word_sentiment) %>%
+  filter(
+    !word %in% duplicates,
+    count != 0
+  ) %>%
+  select(-count)
+
+document_scores <-
+  dtm_norm %>%
+  gather(key = word, value = count, -statement_id) %>%
+  left_join(word_sentiments, by = "word") %>%
+  filter(!is.na(word_sentiment)) %>%
+  group_by(statement_id, word_sentiment) %>%
+  summarize(count = sum(count, na.rm = TRUE)) %>%
+  spread(key = word_sentiment, value = count) %>%
+  mutate(overall_score = positive - negative) %>%
+  ungroup() %>%
+  left_join(
+    documents %>% select(statement_id, date_time, wordcount, office, doc_type),
+    by = "statement_id"
+  )
+```
+
+The following graph shows the distribution of document sentiments over time. The vast majority of the documents have sentiment scores above zero, indicating an overall positive tone. However, there is a lot of variation over time, especially between 2006 and 2010, when a lot of documents were published pertaining to Afghanistan. 
+
+```{r, echo=FALSE}
+document_scores %>%
+  ggplot(aes(date_time, overall_score)) +
+  geom_hex(bins = 40) +
+  geom_smooth(color = "orange") +
+  geom_hline(yintercept = 0, color = "gray80", size = 2, alpha = 0.5) +
+  scale_x_datetime(date_labels = "%Y", date_breaks = "1 year", minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(-0.2, 0.4, 0.1), minor_breaks = NULL) +
+  scale_fill_viridis_c(name = "Count") +
+  labs(
+    x = "Date",
+    y = "Sentiment",
+    title = "Document sentiment scores by date",
+    caption = "Source: Documents compiled from Nexis Uni"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+```
+
+To understand the variation in sentiment scores further, I looked at the average score for all documents for each year between 2004 and 2019 (Figure below).    
+
+```{r, echo=FALSE}
+document_scores %>%
+  group_by(date = year(date_time)) %>%
+  summarize(
+    negative = mean(negative, na.rm = TRUE),
+    positive = mean(positive, na.rm = TRUE),
+    overall_score = mean(overall_score, na.rm = TRUE)
+  ) %>%
+  # mutate(date = as.factor(date)) %>%
+  filter(date != 2019) %>%
+  ggplot(aes(date, overall_score, group = 1)) +
+  geom_vline(xintercept = 2009, color = "gray80", size = 1.5) +
+  geom_vline(xintercept = 2017, color = "gray80", size = 1.5) +
+  geom_line() +
+  geom_point(
+    data = . %>% filter(date %in% c(2009, 2014)),
+    color = "brown4",
+    size = 2
+  ) +
+  scale_x_continuous(breaks = seq(2004, 2019, 1), minor_breaks = NULL) +
+  coord_cartesian(xlim = c(2004, 2018.5)) +
+  labs(
+    x = "Year",
+    y = "Sentiment",
+    title = "Average sentiment score by year",
+    caption = "Source: Documents compiled from Nexis Uni"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  ggplot2::annotate(
+    geom = "text",
+    x = c(2009.1, 2017.1),
+    y = 0.06,
+    label = c("Obama's\npresidency", "Trump's\npresidency"),
+    hjust = 0,
+    color = "gray50"
+  ) +
+  ggplot2::annotate(
+    geom = "text",
+    x = c(2008.8, 2013.4),
+    y = c(0.1, 0.133),
+    label = c("Deployment of 33,000\nadditional troops", "Withdrawal of\nU.S. troops and \nelections in Afghanistan"),
+    hjust = 1,
+    color = "brown4"
+  )
+```
+
+This reveals a number of interesting findings. Under George W. Bush, the documents consistently took on a negative tone. The negative tone in the documents could be attributed to one or both of the following reasons: 1) The outlook on the Afghan war become more pessimistic over time, and 2) official documents focused primarily on the military side of the intervention in Afghanistan. In the latter case, words associated with military are mainly classified as negative rather than positive, regardless of which side is winning the war. A random sampling of the documents (n = 2) appears to support the second postulation.  
+
+
+```{r, echo=FALSE, linewidth=90}
+#creating a function to draw 3 random statements by year and month.
+sampling_by_date <- function(year, month, sample) {
+  set.seed(55)
+  documents %>%
+    filter(
+      year(date_time) == year,
+      month(date_time) == month
+    ) %>%
+    sample_n(sample)
+}
+
+
+#sampling the lowest point
+sampling_by_date(2008, 8, 2) %>% 
+  mutate(text = str_sub(text, end = 729)) %>% 
+  pull(text)
+```
+
+
+
+In 2009, There is a clear uptick in positive tone in the documents right after Barack Obama took over as the president of the United States. This positivity can perhaps be explained by one or two of the following reasons: 1) optimism stemming from the fact that he deployed 33,000 additional troops to Afghanistan^[Baker, Peter. “How Obama Came to Plan for ‘Surge’ in Afghanistan.” The New York Times, December 5, 2009, sec. Asia Pacific. https://www.nytimes.com/2009/12/06/world/asia/06reconstruct.html.], and 2) positive undertones associated with a focus on institution building, governance, and development as opposed to military intervention. With the deployment of additional forces in 2009, President Obama set a clear timeline for the war in Afghanistan, asserting that the U.S. would pull out its troops from the country by 2014. In line with his promise, in 2014, President Obama started the process of military withdrawal, ordering half of the troops to leave the country^[Associated Press. “A Timeline of U.S. Troop Levels in Afghanistan since 2001.” Military Times, August 8, 2017. https://www.military times.com/news/your-military/2016/07/06/a-timeline-of-u-s-troop-levels-in-afghanistan-since-2001/.
+]. 2014 also marks the most positive year for documents in the data set. This might be due to the fact that the official documents by the U.S. administration tried to portray the withdrawal as the end of the war and the ability of the Afghan government to hold down the fort on its own against the insurgents. The following are two randomly generated excerpts from the documents released in 2009 and 2014, respectively, which support this hypothesis. 
+
+
+```{r, echo=FALSE, linewidth=90}
+#sampling from the high point in 2009.
+sampling_by_date(2009, 1, 1) %>% 
+  mutate(text = str_sub(text, end = 851)) %>% 
+  pull(text)
+
+#sampling from the highest point
+sampling_by_date(2014, 4, 1) %>% 
+  mutate(text = str_sub(text, end = 1132)) %>% 
+  pull(text)
+```
+
+
+
+A look at the distribution of sentiment scores by month and year corroborates the findings described above. There is a clear spike in optimism right after President Obama comes to office. The figure also suggests that the documents take on a more pessimistic tone right before and during the time of elections in the United States. 
+
+```{r, echo=FALSE}
+document_scores %>%
+  group_by(year = year(date_time), month = month(date_time)) %>%
+  summarize(
+    negative = mean(negative, na.rm = TRUE),
+    positive = mean(positive, na.rm = TRUE),
+    overall_score = mean(overall_score, na.rm = TRUE)
+  ) %>%
+  mutate(
+    date = make_date(year = year, month = month)
+  ) %>%
+  ggplot(aes(date, overall_score, group = 1)) +
+  geom_vline(xintercept = make_date(2009, 1, 20), color = "gray80", size = 1.5) +
+  geom_vline(xintercept = make_date(2017, 1, 20), color = "gray80", size = 1.5) +
+  geom_line() +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y", minor_breaks = NULL) +
+  scale_y_continuous(breaks = seq(-0, 0.2, 0.05)) +
+  labs(
+    x = "Year",
+    y = "Sentiment",
+    title = "Sentiment score for documents by month and year",
+    caption = "Source: Documents compiled from Nexis Uni"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  ggplot2::annotate(
+    geom = "text",
+    x = c(as.Date("2009-03-15"), as.Date("2017-03-15")),
+    y = 0.01,
+    label = c("Obama's\npresidency", "Trump's\npresidency"),
+    hjust = 0,
+    color = "gray50"
+  )
+```
+
+The data also lends itself to the hypothesis that there is seasonality to the document sentiments (Figure below). During the annual Taliban Spring Offensive that falls between the months of April and August^[Mashal, Mujib. “Taliban Announce Spring Offensive, Even as Peace Talks Gain Momentum - The New York Times.” The New York Times, April 12, 2019. https://www.nytimes.com/2019/04/12/world/asia/taliban-spring-offensive-afghanistan.html.], the documents have a more negative tone than the other months. On the other hand, the sentiments are more positive during the winter season when there is less fighting between the two sides. The negative sentiments during the fighting season, however, are not determinant of which side is winning the war and merely indicate that the documents contain more negative words.  
+
+
+```{r, echo=FALSE}
+document_scores %>%
+  group_by(date = month(date_time)) %>%
+  summarize(
+    negative = mean(negative, na.rm = TRUE),
+    positive = mean(positive, na.rm = TRUE),
+    overall_score = mean(overall_score, na.rm = TRUE)
+  ) %>%
+  mutate(date = as.factor(date)) %>%
+  ggplot(aes(date, overall_score, group = 1)) +
+  geom_rect(
+    xmin = 4,
+    xmax = 8,
+    ymin = 0,
+    ymax = 0.15,
+    fill = "brown2",
+    alpha = 1/100
+  ) +
+  geom_line() +
+  labs(
+    x = "Month",
+    y = "Sentiment",
+    title = "Sentiment score for documents by month of the year",
+    caption = "Source: Documents compiled from Nexis Uni"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  ) +
+  ggplot2::annotate(
+    geom = "text",
+    x = 6,
+    y = 0.098,
+    label = "Anuual Taliban\noffensive",
+    hjust = 0.5,
+    color = "brown4"
+  )
+```
+
+In order to ensure that monthly data is not influenced by the number of document published in a year, I ran a year fixed effects regression on the months. the following table summarize the results of the regression and confirm the seasonality in sentiments.
+
+
+```{r, echo=FALSE, linewidth=90}
+fit <-
+  felm(
+    overall_score ~ month | year,
+    data =
+      document_scores %>%
+      mutate(
+        year = as.factor(year(date_time)),
+        month = as.factor(month(date_time))
+      )
+  )
+summary(fit)
+```
+
+The coefficients for the months of July and August, which are significant at 1% level, back the finding that the overall document sentiments become more negative during these months compared to the month of Jaunary. 
+
+#Future Research
+This research was designed as an initial exploratory exercise to inductively learn from the vast corpus of documents available on Afghanistan. Further research is necessary to delve deeper into each of the topics explored in this paper. Future studies, for instance, can look at whether the same sentiment patterns hold when using other dictionaries. In particular, using a dictionary that is more suited to military interventions can perhaps reveal which side has the upper hand on the battlefield. Moreover, there is a need for further analysis to assess how sentiment and topics change based on office and document type. These research projects could perhaps reveal important insights into the dynamics of the interminable conflict in Afghanistan. 
